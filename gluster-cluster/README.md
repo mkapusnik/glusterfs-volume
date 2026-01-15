@@ -2,7 +2,7 @@
 
 ## Quick Start
 
-`docker-compose up -d server1 server2` brings up a test cluster
+`docker compose up -d server1 server2` brings up a test cluster
 
 ## GlusterFS test cluster
 
@@ -12,10 +12,10 @@ for the plugin right now.
 Start Gluster
 
 ```bash
-docker-compose up server1
-docker-compose exec server2 peer probe server1
-docker-compose exec server2 mkdir /data/brick
-docker-compose exec server1 bash
+docker compose up server1
+docker compose exec server2 peer probe server1
+docker compose exec server2 mkdir /data/brick
+docker compose exec server1 bash
 gluster peer status
 gluster peer probe server2
 mkdir /data/brick

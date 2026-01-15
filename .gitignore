@@ -1,3 +1,5 @@
 plugin/
 bin/
 gluster_id.txt
+.idea/
+vendor/

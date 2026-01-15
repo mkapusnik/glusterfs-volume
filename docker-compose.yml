@@ -1,12 +1,9 @@
-version: '3.8'
-
 volumes:
   lvm:
   save:
   data:
 
 services:
-
   builder:
     image: glusterbuild
     build:
