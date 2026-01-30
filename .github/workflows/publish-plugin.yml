@@ -1,0 +1,33 @@
+name: Publish Docker Plugin
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Compute plugin name
+        id: meta
+        run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "plugin=ghcr.io/${REPO}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin
+        run: make build plugin="${{ steps.meta.outputs.plugin }}"
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push plugin to GHCR
+        run: make push plugin="${{ steps.meta.outputs.plugin }}"
