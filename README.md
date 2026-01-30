@@ -18,7 +18,7 @@ docker plugin enable glusterfs-volume
 A better way is to create an instance of the plugin for each unique gluster volume it must manage. For this to work the plugin must be published in a registry.
 
 ```bash
-docker plugin install --alias cloud1 registry.example.com/glusterfs-volume GFS_VOLUME=cloud1 GFS_SERVERS=server1,server2,server3
+docker plugin install --alias cloud1 github.com/mkapusnik/glusterfs-volume GFS_VOLUME=cloud1 GFS_SERVERS=server1,server2,server3
 ```
 
 This plugin expects the root gluster volume to be pre-created.
@@ -29,7 +29,7 @@ docker-compose builder operations are passed an explicit --context default flag 
 docker agent as the build target to deploy directly to a swarm server (as an example)
 
 ```bash
-make build push plugin=registry.example.com/gluster-volume
+make build push plugin=github.com/mkapusnik/gluster-volume
 ```
 
 ## References
