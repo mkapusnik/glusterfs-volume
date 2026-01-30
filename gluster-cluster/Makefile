@@ -1,9 +1,9 @@
 
 start:
-	docker-compose up -d server1 server2
+	docker compose up -d server1 server2
 
 shell:
-	docker-compose run gluster
+	docker compose run gluster
 
 clean:
-	docker-compose down -v
+	docker compose down -v

@@ -10,7 +10,7 @@ version = 4
 
 docker-compose = DOCKER_BUILDKIT=1
 docker-compose += COMPOSE_DOCKER_CLI_BUILD=1
-docker-compose += docker-compose --context $(context)
+docker-compose += docker --context $(context) compose
 
 docker = docker
 docker += --context $(context)
@@ -23,7 +23,7 @@ all: build
 
 bin/linux/docker-volume-glusterfs: $(go_source)
 	@echo "[MAKE] Compiling glusterfs binary..."
-	@$(docker-compose) --context default run builder go build -o ./bin/linux/docker-volume-glusterfs
+	@$(docker-compose) run builder go build -o ./bin/linux/docker-volume-glusterfs
 
 image: bin/linux/docker-volume-glusterfs
 	@echo "[MAKE] Building docker image for plugin..."
@@ -38,7 +38,7 @@ gluster_id.txt:
 plugin: gluster_id.txt
 	@echo "[MAKE] Rebuilding plugin/rootfs..."
 	@mkdir -p plugin/rootfs
-	@docker -c default export "$(shell cat gluster_id.txt)" | tar -x -C plugin/rootfs
+	@-docker --context default export "$$(cat gluster_id.txt)" | tar -x -C plugin/rootfs
 
 plugin/config.json:	config.json
 	cp $< $@
@@ -60,7 +60,7 @@ clean:
 	@echo "[CLEAN] Disabling Plugin $(plugin)"
 	docker --context default plugin disable -f $(plugin) | true
 	@echo "[CLEAN] Stopping builder"
-	docker-compose --context default down -v
+	docker --context default compose down -v
 	@echo "[CLEAN] Removing Plugin files"
 	sudo rm -rf ./plugin
 	rm -rf ./bin/linux/*
@@ -78,16 +78,16 @@ commit:
 	git push
 
 deploy:
-	#@docker -c $(context) node update --availability drain $(node)
+	#@docker --context $(context) node update --availability drain $(node)
 	#@echo Proceeding with...
-	@docker -c $(node) ps
-	@-docker -c $(node) plugin disable $(alias) --force
-	@-docker -c $(node) plugin rm $(alias) --force
-	@-docker -c $(node) plugin install --alias $(alias) --grant-all-permissions $(plugin) GFS_SERVERS=$(servers) GFS_VOLUME=$(volume)
-	#@docker -c $(context) node update --availability active $(node)
+	@docker --context $(node) ps
+	@-docker --context $(node) plugin disable $(alias) --force
+	@-docker --context $(node) plugin rm $(alias) --force
+	@-docker --context $(node) plugin install --alias $(alias) --grant-all-permissions $(plugin) GFS_SERVERS=$(servers) GFS_VOLUME=$(volume)
+	#@docker --context $(context) node update --availability active $(node)
 
 shell:
-	docker-compose -c $(context) run builder
+	docker --context $(context) compose run builder
 
 test-gluster-vol1: test-gluster-up
 	@-$(docker-compose) exec glusterfs gluster volume create $(volume) glusterfs:/data/$(volume)
