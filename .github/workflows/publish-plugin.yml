@@ -3,7 +3,7 @@ name: Publish Docker Plugin
 on:
   push:
     branches:
-      - master
+      - '**'
   workflow_dispatch: {}
 
 permissions:
@@ -21,7 +21,13 @@ jobs:
         id: meta
         run: |
           REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "plugin=ghcr.io/${REPO}:latest" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            TAG=latest
+          else
+            TAG=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g')
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "plugin=ghcr.io/${REPO}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build plugin
         run: make build plugin="${{ steps.meta.outputs.plugin }}"
