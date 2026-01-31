@@ -30,10 +30,10 @@ image: bin/linux/docker-volume-glusterfs
 	@DOCKER_BUILDKIT=1 \
 	docker build -t $(plugin) .
 
-	gluster_id.txt:
-		@echo "[MAKE] Creating new instance of $(plugin)"
-		$(MAKE) image
-		$(docker) create $(plugin) > gluster_id.txt
+gluster_id.txt:
+	@echo "[MAKE] Creating new instance of $(plugin)"
+	$(MAKE) image
+	$(docker) create $(plugin) > gluster_id.txt
 
 
 plugin: gluster_id.txt
