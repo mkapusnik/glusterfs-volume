@@ -2,13 +2,18 @@
   "description": "GlusterFS plugin for Docker v1.2",
   "documentation": "https://docs.docker.com/engine/extend/plugins/",
   "entrypoint": [
-    "/tini",
+    "/usr/local/bin/tini",
     "--",
-    "/docker-volume-glusterfs"
+    "/usr/local/bin/docker-volume-glusterfs"
   ],
+
   "network": {
     "type": "host"
   },
+  "mounts": [
+    {"type": "bind", "source": "/mnt/volumes", "destination": "/mnt/volumes", "options": ["shared","rw","rbind"]}
+  ],
+
   "interface": {
     "socket": "glusterfs.sock",
     "types": [

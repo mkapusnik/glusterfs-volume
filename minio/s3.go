@@ -1,3 +1,6 @@
+//go:build minio
+// +build minio
+
 package s3
 
 import (
@@ -12,6 +15,7 @@ import (
 	"github.com/docker/go-plugins-helpers/volume"
 	"github.com/gluster/gogfapi/gfapi"
 )
+
 
 //------------------------------
 

@@ -30,10 +30,11 @@ image: bin/linux/docker-volume-glusterfs
 	@DOCKER_BUILDKIT=1 \
 	docker build -t $(plugin) .
 
-gluster_id.txt:
-	@echo "[MAKE] Creating new instance of $(plugin)"
-	$(MAKE) image
-	docker create $(plugin) > gluster_id.txt
+	gluster_id.txt:
+		@echo "[MAKE] Creating new instance of $(plugin)"
+		$(MAKE) image
+		$(docker) create $(plugin) > gluster_id.txt
+
 
 plugin: gluster_id.txt
 	@echo "[MAKE] Rebuilding plugin/rootfs..."
@@ -51,7 +52,8 @@ build: plugin plugin/config.json plugin/rootfs/docker-volume-glusterfs
 	@docker --context default plugin disable --force $(plugin) ; true
 	@docker --context default plugin rm --force $(plugin) ; true
 
-	sudo docker plugin create $(plugin) ./plugin/
+	$(docker) plugin create $(plugin) ./plugin/
+
 
 clean:
 	@echo "[CLEAN] Removing container $(id)"
@@ -60,7 +62,8 @@ clean:
 	@echo "[CLEAN] Disabling Plugin $(plugin)"
 	docker --context default plugin disable -f $(plugin) | true
 	@echo "[CLEAN] Stopping builder"
-	docker --context default compose down -v
+	$(docker) compose down -v
+
 	@echo "[CLEAN] Removing Plugin files"
 	sudo rm -rf ./plugin
 	rm -rf ./bin/linux/*

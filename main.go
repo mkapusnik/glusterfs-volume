@@ -12,7 +12,7 @@ import (
 //------------------------------
 
 // config.json settings
-const socketAddress = "/run/docker/plugins/glusterfs.sock"
+const socketAddress = "glusterfs.sock"
 const propagatedMount = "/mnt/volumes"
 
 // -------------
