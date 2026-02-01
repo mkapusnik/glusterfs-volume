@@ -12,7 +12,7 @@ import (
 //------------------------------
 
 // config.json settings
-const socketAddress = "/run/docker/plugins/glusterfs.sock"
+const socketAddress = "glusterfs"
 const propagatedMount = "/mnt/volumes"
 
 // -------------
@@ -24,7 +24,7 @@ func init() {
 	logfile := os.Getenv("LOGFILE")
 
 	if logfile != "" {
-		f, err := os.OpenFile("testlogfile", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		f, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
 			log.Fatalf("error opening file: %v", err)
 		}
