@@ -1,4 +1,4 @@
-FROM golang:1.20-bookworm AS builder
+FROM golang:1.20-bullseye AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -9,7 +9,7 @@ WORKDIR /src
 COPY . .
 RUN go build -o /out/docker-volume-glusterfs
 
-FROM debian:bookworm-slim AS plugin
+FROM debian:bullseye-slim AS plugin
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
