@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   build-and-push:
@@ -29,11 +30,11 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "plugin=ghcr.io/${REPO}:${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Build plugin
-        run: make build plugin="${{ steps.meta.outputs.plugin }}"
+      - name: Build image
+        run: make image plugin="${{ steps.meta.outputs.plugin }}"
 
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Push plugin to GHCR
-        run: make push plugin="${{ steps.meta.outputs.plugin }}"
+      - name: Push image to GHCR
+        run: docker push "${{ steps.meta.outputs.plugin }}"
