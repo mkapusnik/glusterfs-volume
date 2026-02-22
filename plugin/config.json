@@ -26,31 +26,5 @@
       }
     ]
   },
-  "propagatedMount": "/var/lib/glusterfs-volume",
-  "env": [
-    {
-      "name": "GFS_VOLUME",
-      "description": "Default gluster volume",
-      "settable": [
-        "value"
-      ],
-      "value": ""
-    },
-    {
-      "name": "GFS_SERVERS",
-      "description": "Comma-separated list of servers",
-      "settable": [
-        "value"
-      ],
-      "value": ""
-    },
-    {
-      "name": "LOGFILE",
-      "description": "Optional logfile path",
-      "settable": [
-        "value"
-      ],
-      "value": ""
-    }
-  ]
+  "propagatedMount": "/var/lib/glusterfs-volume"
 }
