@@ -1,5 +1,4 @@
-plugin/
 bin/
-gluster_id.txt
-.idea/
-vendor/
+plugin/container.id
+plugin/config.json
+plugin/rootfs/

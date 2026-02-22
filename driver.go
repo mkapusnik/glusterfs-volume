@@ -5,23 +5,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/docker/go-plugins-helpers/volume"
 )
 
-//------------------------------
+const defaultMode = 0o755
 
-// default file mode to create new volume directories in gluster
-const defaultMode = 0755
-const mountMode = 0555
-const showHidden = false
-
-///////////////////////////////////////////////////////////////////////////////
-
-// ActiveMount holds active mounts
 type activeMount struct {
 	connections int
 	mountpoint  string
@@ -32,203 +23,213 @@ type activeMount struct {
 type glusterfsDriver struct {
 	sync.RWMutex
 
-	root string
-
-	mounts map[string]*activeMount
-
-	client glfsConnector
+	root           string
+	store          *stateStore
+	volumes        map[string]volumeState
+	mounts         map[string]*activeMount
+	defaultVolume  string
+	defaultServers []string
+	client         glfsConnector
 }
 
-// API volumeDriver.Create
 func (d *glusterfsDriver) Create(r *volume.CreateRequest) error {
 	d.Lock()
 	defer d.Unlock()
 
-	err := d.client.create(r.Name)
-
-	return err
-}
-
-// volumeDriver.List
-func (d *glusterfsDriver) List() (*volume.ListResponse, error) {
-	d.Lock()
-	defer d.Unlock()
-
-	files, err := d.client.list()
-
+	servers := splitList(r.Options["server"])
+	name := r.Options["name"]
+	if name == "" {
+		name = r.Options["volume"]
+	}
+	if len(servers) == 0 {
+		servers = d.defaultServers
+	}
+	if name == "" {
+		name = d.defaultVolume
+	}
+	volumeName, subdir, err := parseGfsName(name)
 	if err != nil {
-		return &volume.ListResponse{}, err
+		return err
+	}
+	if volumeName == "" || len(servers) == 0 {
+		return fmt.Errorf("glusterfs options must include server and volume")
 	}
 
-	var vols []*volume.Volume
-	for _, file := range files {
-		if file.IsDir() && (showHidden || !strings.HasPrefix(file.Name(), ".")) {
-
-			vols = append(vols, &volume.Volume{Name: file.Name()})
+	if _, ok := d.volumes[r.Name]; !ok {
+		d.volumes[r.Name] = volumeState{
+			Name:      r.Name,
+			Servers:   servers,
+			Volume:    volumeName,
+			Subdir:    subdir,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
+		if err := d.store.save(d.volumes); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (d *glusterfsDriver) List() (*volume.ListResponse, error) {
+	d.RLock()
+	defer d.RUnlock()
+
+	vols := make([]*volume.Volume, 0, len(d.volumes))
+	for _, v := range d.volumes {
+		vols = append(vols, &volume.Volume{Name: v.Name})
 	}
 
 	return &volume.ListResponse{Volumes: vols}, nil
 }
 
-// volumeDriver.Get
 func (d *glusterfsDriver) Get(r *volume.GetRequest) (*volume.GetResponse, error) {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 
-	s := make(map[string]interface{})
-	s["gluster-volume-version"] = "3"
-
-	// Find it if its listed in mounts.
-	v, ok := d.mounts[r.Name]
-	if ok {
-		s["source"] = "mounts"
-		vol := &volume.Volume{
-			Name:       r.Name,
-			CreatedAt:  v.createdAt.Format(time.RFC3339),
-			Mountpoint: v.mountpoint,
-			Status:     s,
-		}
-
-		return &volume.GetResponse{Volume: vol}, nil
+	state, ok := d.volumes[r.Name]
+	if !ok {
+		return &volume.GetResponse{}, fmt.Errorf("volume %s not found", r.Name)
 	}
 
-	stat, err := d.client.get(r.Name)
-	if err != nil {
-		return &volume.GetResponse{}, err
+	status := map[string]interface{}{
+		"servers": state.Servers,
+		"volume":  state.Volume,
+		"subdir":  state.Subdir,
 	}
-	s["source"] = "gogfs-statd"
-	vo := &volume.Volume{
-		Name:      stat.Name(),
-		CreatedAt: stat.ModTime().Format(time.RFC3339),
-		Status:    s,
+	if mount, ok := d.mounts[r.Name]; ok {
+		status["mountpoint"] = mount.mountpoint
 	}
-	return &volume.GetResponse{Volume: vo}, nil
+
+	vol := &volume.Volume{
+		Name:       state.Name,
+		CreatedAt:  state.CreatedAt,
+		Mountpoint: state.Subdir,
+		Status:     status,
+	}
+
+	return &volume.GetResponse{Volume: vol}, nil
 }
 
-// volumeDriver.Remove
 func (d *glusterfsDriver) Remove(r *volume.RemoveRequest) error {
 	d.Lock()
 	defer d.Unlock()
 
-	v, ok := d.mounts[r.Name]
-	if ok && v.connections != 0 {
-		log.Printf("Error: %d Existing local mounts", v.connections)
+	if mount, ok := d.mounts[r.Name]; ok && mount.connections > 0 {
+		return fmt.Errorf("volume %s is still mounted", r.Name)
 	}
 
-	err := d.client.remove(r.Name)
-
+	delete(d.volumes, r.Name)
 	delete(d.mounts, r.Name)
 
-	return err
+	return d.store.save(d.volumes)
 }
 
-// Volumedriver.Path
 func (d *glusterfsDriver) Path(r *volume.PathRequest) (*volume.PathResponse, error) {
-	d.Lock()
-	defer d.Unlock()
+	d.RLock()
+	defer d.RUnlock()
 
-	v, ok := d.mounts[r.Name]
-	if !ok || v.connections == 0 || v.mountpoint == "" {
-		err := fmt.Errorf("no mountpoint for volume.")
-		log.Printf("Path error. name: %s, err: %v", r.Name, err)
-		return &volume.PathResponse{}, err
+	mount, ok := d.mounts[r.Name]
+	if !ok || mount.connections == 0 {
+		return &volume.PathResponse{}, fmt.Errorf("no mountpoint for volume")
 	}
 
-	return &volume.PathResponse{Mountpoint: v.mountpoint}, nil
+	return &volume.PathResponse{Mountpoint: mount.mountpoint}, nil
 }
 
-// VolumeDriver.Mount
 func (d *glusterfsDriver) Mount(r *volume.MountRequest) (*volume.MountResponse, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	log.Printf("GlusterFS: Mount %+v", r)
+	state, ok := d.volumes[r.Name]
+	if !ok {
+		return &volume.MountResponse{}, fmt.Errorf("volume %s not found", r.Name)
+	}
 
 	mountpoint := d.mountpoint(r.Name)
-
-	v, ok := d.mounts[r.Name]
+	info, ok := d.mounts[r.Name]
 	if !ok {
-		v = &activeMount{
-			mountpoint: mountpoint,
-			ids:        map[string]int{},
-		}
-		d.mounts[r.Name] = v
+		info = &activeMount{mountpoint: mountpoint, ids: map[string]int{}, createdAt: time.Now().UTC()}
+		d.mounts[r.Name] = info
 	}
 
 	stat, err := os.Lstat(mountpoint)
-
-	if err != nil || v.connections == 0 {
-
+	if err != nil || info.connections == 0 {
+		if err != nil && !os.IsNotExist(err) {
+			_ = d.client.unmount(mountpoint)
+		}
 		if os.IsNotExist(err) {
-			if err := os.MkdirAll(mountpoint, defaultMode); err != nil {
-				log.Printf("Mount error. os.MkdirAll %s, err: %v", mountpoint, err)
+			if err := os.MkdirAll(mountpoint, defaultMode); err != nil && !os.IsExist(err) {
 				return &volume.MountResponse{}, err
 			}
-		} else if err != nil {
-			log.Printf("Mount is unmounting dodgey fuse mount: %v", err)
-			d.client.unmount(mountpoint)
 		}
-
-		if stat != nil && !stat.IsDir() {
-			err = fmt.Errorf("mountpoint is not a directory")
-			log.Printf("Mount error: lstat %s, err: %v", mountpoint, err)
+		stat, err = os.Lstat(mountpoint)
+		if err != nil {
 			return &volume.MountResponse{}, err
 		}
+		if !stat.IsDir() {
+			if err := os.Remove(mountpoint); err != nil {
+				return &volume.MountResponse{}, err
+			}
+			if err := os.MkdirAll(mountpoint, defaultMode); err != nil {
+				return &volume.MountResponse{}, err
+			}
+		}
 
-		if err = d.client.mountWithGlusterfs(mountpoint, r.Name); err != nil {
-			log.Printf("Mount error: %v", err)
+		if state.Subdir != "" {
+			if err := d.client.mountWithGlusterfs(mountpoint, state.Volume, state.Servers, ""); err != nil {
+				return &volume.MountResponse{}, err
+			}
+			if err := os.MkdirAll(filepath.Join(mountpoint, state.Subdir), defaultMode); err != nil {
+				_ = d.client.unmount(mountpoint)
+				return &volume.MountResponse{}, err
+			}
+			if err := d.client.unmount(mountpoint); err != nil {
+				return &volume.MountResponse{}, err
+			}
+		}
+
+		if err := d.client.mountWithGlusterfs(mountpoint, state.Volume, state.Servers, state.Subdir); err != nil {
 			return &volume.MountResponse{}, err
 		}
 	}
 
-	v.mountpoint = mountpoint
-	v.ids[r.ID]++
-	v.connections++
-
-	log.Printf("Mounted registration: %+v", v)
+	info.mountpoint = mountpoint
+	info.ids[r.ID]++
+	info.connections++
 
 	return &volume.MountResponse{Mountpoint: mountpoint}, nil
 }
 
-// VolumeDriver.Unmount
 func (d *glusterfsDriver) Unmount(r *volume.UnmountRequest) error {
-	log.Printf("GlusterFS: Unmount %v", r)
+	d.Lock()
+	defer d.Unlock()
 
-	v, ok := d.mounts[r.Name]
+	info, ok := d.mounts[r.Name]
 	if !ok {
-		err := fmt.Errorf("Volume not found in active Mounts: %s", r.Name)
-		log.Printf("Unmount failed: %v", err)
-		return err
+		return fmt.Errorf("volume not mounted: %s", r.Name)
 	}
-
-	if v.connections == 0 {
-		err := fmt.Errorf("Mount has no active connections: %s", r.Name)
-		log.Printf("Unmount failed: %v", err)
-		return err
+	if info.connections == 0 {
+		return fmt.Errorf("volume has no active mounts: %s", r.Name)
 	}
-
-	i, ok := v.ids[r.ID]
+	count, ok := info.ids[r.ID]
 	if !ok {
-		err := fmt.Errorf("Mount %s does not know about this client ID: %s", r.Name, r.ID)
-		log.Printf("Unmount failed: %v", err)
-		return err
+		return fmt.Errorf("mount %s does not know about client %s", r.Name, r.ID)
 	}
 
-	i--
-	v.connections--
-
-	if i <= 1 {
-		delete(v.ids, r.ID)
+	count--
+	info.connections--
+	if count <= 0 {
+		delete(info.ids, r.ID)
 	} else {
-		v.ids[r.ID] = i
+		info.ids[r.ID] = count
 	}
 
-	if len(v.ids) == 0 {
-		log.Printf("Unmounting volume %s with %v clients", r.Name, v.connections)
-
-		d.client.unmount(v.mountpoint)
-
+	if len(info.ids) == 0 {
+		log.Printf("Unmounting volume %s", r.Name)
+		if err := d.client.unmount(info.mountpoint); err != nil {
+			return err
+		}
 		delete(d.mounts, r.Name)
 	}
 
@@ -239,7 +240,6 @@ func (d *glusterfsDriver) Capabilities() *volume.CapabilitiesResponse {
 	return &volume.CapabilitiesResponse{Capabilities: volume.Capability{Scope: "global"}}
 }
 
-// mountpoint of a docker volume
-func (d *glusterfsDriver) mountpoint(Name string) string {
-	return filepath.Join(d.root, Name)
+func (d *glusterfsDriver) mountpoint(name string) string {
+	return filepath.Join(d.root, name)
 }

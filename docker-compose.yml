@@ -1,28 +1,34 @@
-volumes:
-  lvm:
-  save:
-  data:
+version: "3.8"
 
 services:
-  builder:
-    image: glusterbuild
+  server1:
     build:
-      context: .
-      target: builder
-    working_dir: /src
-    volumes:
-      - ./:/src
-      - ./test:/usr/local/go/src/test
-
-  glusterfs:
-    image: gluster/gluster-centos
-    hostname: glusterfs
+      context: ci/glusterfs-server
+    image: glusterfs-server-arm64
+    hostname: server1
     privileged: true
-    network_mode: host
     environment:
       CGROUP_PIDS_MAX: 0
     volumes:
-      - lvm:/run/lvm
-      - save:/var/lib/glusterd
-      - data:/data
-    
+      - data1:/data
+      - save1:/var/lib/glusterd
+    depends_on:
+      - server2
+
+  server2:
+    build:
+      context: ci/glusterfs-server
+    image: glusterfs-server-arm64
+    hostname: server2
+    privileged: true
+    environment:
+      CGROUP_PIDS_MAX: 0
+    volumes:
+      - data2:/data
+      - save2:/var/lib/glusterd
+
+volumes:
+  data1:
+  data2:
+  save1:
+  save2:

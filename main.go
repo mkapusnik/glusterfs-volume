@@ -8,45 +8,48 @@ import (
 	"github.com/docker/go-plugins-helpers/volume"
 )
 
-//------------------------------
-
-// config.json settings
 const socketAddress = "glusterfs"
-const propagatedMount = "/mnt/volumes"
-
-// -------------
-// main
+const propagatedMount = "/var/lib/glusterfs-volume"
+const stateFile = "/var/lib/glusterfs-volume/.glusterfs-plugin/volumes.json"
 
 func init() {
 	log.SetFlags(0)
 	logfile := os.Getenv("LOGFILE")
 	if logfile != "" {
-		f, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		f, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
 		if err != nil {
-			log.Fatalf("error opening file: %v", err)
+			log.Fatalf("error opening log file: %v", err)
 		}
-		defer f.Close()
 		log.SetOutput(f)
 	}
 }
 
 func main() {
-	gfsvol := os.Getenv("GFS_VOLUME")
-	gfsservers := strings.Split(os.Getenv("GFS_SERVERS"), ",")
-
-	d := &glusterfsDriver{
-		mounts: map[string]*activeMount{},
-		root:   propagatedMount,
-		client: glfsConnector{
-			conn:   nil,
-			volume: gfsvol,
-			hosts:  gfsservers,
-		},
+	defaultServers := splitList(os.Getenv("GFS_SERVERS"))
+	defaultVolume := strings.TrimSpace(os.Getenv("GFS_VOLUME"))
+	if err := ensureDirPath(propagatedMount, 0o755); err != nil {
+		log.Fatalf("failed to prepare mount root: %v", err)
 	}
 
-	h := volume.NewHandler(d)
+	store := newStateStore(stateFile)
+	volumes, err := store.load()
+	if err != nil {
+		log.Fatalf("failed to load state: %v", err)
+	}
+
+	driver := &glusterfsDriver{
+		root:           propagatedMount,
+		store:          store,
+		volumes:        volumes,
+		mounts:         map[string]*activeMount{},
+		defaultVolume:  defaultVolume,
+		defaultServers: defaultServers,
+		client:         glfsConnector{},
+	}
+
+	h := volume.NewHandler(driver)
 	log.Printf("GlusterFS Volume Plugin listening on %s.sock", socketAddress)
-	err := h.ServeUnix(socketAddress, 0)
-	log.Print(err)
-	return
+	if err := h.ServeUnix(socketAddress, 0); err != nil {
+		log.Print(err)
+	}
 }
