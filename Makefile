@@ -1,103 +1,47 @@
-registry = 
-plugin = $(registry)$(notdir $(CURDIR))
-context = default
-node = node
-go_source := main.go driver.go gfs.go
-volume := test
-# gv0
-servers := lab717.mgsops.net,lab718.mgsops.net,lab719.mgsops.net
-version = 4
+PLUGIN ?= glusterfs-volume
+REGISTRY ?=
+CONTEXT ?= default
+DOCKER ?= docker
 
-docker-compose = DOCKER_BUILDKIT=1
-docker-compose += COMPOSE_DOCKER_CLI_BUILD=1
-docker-compose += docker --context $(context) compose
+PLUGIN_NAME := $(REGISTRY)$(PLUGIN)
+GO_SOURCES := $(shell ls *.go)
 
-docker = docker
-docker += --context $(context)
-
-.PHONY: build clean image test go
-
-default: shell
+.PHONY: all build image plugin clean push
 
 all: build
 
-bin/linux/docker-volume-glusterfs: $(go_source)
-	@echo "[MAKE] Compiling glusterfs binary..."
-	@$(docker-compose) run builder go build -o ./bin/linux/docker-volume-glusterfs
+bin/linux/docker-volume-glusterfs: $(GO_SOURCES)
+	@echo "[MAKE] Building glusterfs binary"
+	@mkdir -p bin/linux
+	@DOCKER_BUILDKIT=1 \
+	  $(DOCKER) --context $(CONTEXT) build \
+	  --target artifact \
+	  -o type=local,dest=bin/linux .
 
 image: bin/linux/docker-volume-glusterfs
-	@echo "[MAKE] Building docker image for plugin..."
-	@DOCKER_BUILDKIT=1 \
-	docker build -t $(plugin) .
+	@echo "[MAKE] Building plugin image $(PLUGIN_NAME)"
+	@DOCKER_BUILDKIT=1 $(DOCKER) --context $(CONTEXT) build -t $(PLUGIN_NAME) .
 
-gluster_id.txt:
-	@echo "[MAKE] Creating new instance of $(plugin)"
-	$(MAKE) image
-	docker create $(plugin) > gluster_id.txt
-
-plugin: gluster_id.txt
-	@echo "[MAKE] Rebuilding plugin/rootfs..."
+plugin: image
+	@echo "[MAKE] Creating rootfs"
+	@rm -rf plugin/rootfs
 	@mkdir -p plugin/rootfs
-	@-docker --context default export "$$(cat gluster_id.txt)" | tar -x -C plugin/rootfs
+	@$(DOCKER) --context $(CONTEXT) create $(PLUGIN_NAME) > plugin/container.id
+	@$(DOCKER) --context $(CONTEXT) export "$$(cat plugin/container.id)" | tar -x -C plugin/rootfs
+	@$(DOCKER) --context $(CONTEXT) rm -f "$$(cat plugin/container.id)"
+	@cp config.json plugin/
 
-plugin/config.json:	config.json
-	cp $< $@
+build: plugin
+	@echo "[MAKE] Creating docker volume plugin $(PLUGIN_NAME)"
+	@if $(DOCKER) --context $(CONTEXT) plugin inspect $(PLUGIN_NAME) >/dev/null 2>&1; then \
+		$(DOCKER) --context $(CONTEXT) plugin disable --force $(PLUGIN_NAME); \
+		$(DOCKER) --context $(CONTEXT) plugin rm --force $(PLUGIN_NAME); \
+	fi
+	@$(DOCKER) --context $(CONTEXT) plugin create $(PLUGIN_NAME) ./plugin
 
-plugin/rootfs/docker-volume-glusterfs:	bin/linux/docker-volume-glusterfs
-	cp $< $@
-
-build: plugin plugin/config.json plugin/rootfs/docker-volume-glusterfs
-	@echo "[MAKE] Creating docker volume plugin..."
-	@docker --context default plugin disable --force $(plugin) ; true
-	@docker --context default plugin rm --force $(plugin) ; true
-
-	sudo docker plugin create $(plugin) ./plugin/
+push: build
+	@echo "[MAKE] Pushing plugin $(PLUGIN_NAME)"
+	@$(DOCKER) --context $(CONTEXT) plugin push $(PLUGIN_NAME)
 
 clean:
-	@echo "[CLEAN] Removing container $(id)"
-	@docker --context default rm -vf "$(id)" | true
-	rm -f ./gluster_id.txt | true
-	@echo "[CLEAN] Disabling Plugin $(plugin)"
-	docker --context default plugin disable -f $(plugin) | true
-	@echo "[CLEAN] Stopping builder"
-	docker --context default compose down -v
-	@echo "[CLEAN] Removing Plugin files"
-	sudo rm -rf ./plugin
-	rm -rf ./bin/linux/*
-
-push:
-	@echo "[PUSH] Pushing $(plugin)..."
-	@docker --context default plugin push $(plugin)
-
-test: test-gluster-vol1
-	@-docker plugin disable $(plugin) --force
-	@docker plugin set $(plugin) GFS_VOLUME=$(volume) GFS_SERVERS=$(servers)
-	@docker plugin enable $(plugin)
-
-commit:
-	git push
-
-deploy:
-	#@docker --context $(context) node update --availability drain $(node)
-	#@echo Proceeding with...
-	@docker --context $(node) ps
-	@-docker --context $(node) plugin disable $(alias) --force
-	@-docker --context $(node) plugin rm $(alias) --force
-	@-docker --context $(node) plugin install --alias $(alias) --grant-all-permissions $(plugin) GFS_SERVERS=$(servers) GFS_VOLUME=$(volume)
-	#@docker --context $(context) node update --availability active $(node)
-
-shell:
-	docker --context $(context) compose run builder
-
-test-gluster-vol1: test-gluster-up
-	@-$(docker-compose) exec glusterfs gluster volume create $(volume) glusterfs:/data/$(volume)
-	@-$(docker-compose) exec glusterfs gluster volume start $(volume)
-
-test-gluster-up:
-	@$(docker-compose) up -d glusterfs
-
-dockerlog:
-	tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/dockerd.log
-
-count:
-	docker ps -q | wc -l
+	@rm -rf plugin/rootfs plugin/container.id bin/linux
