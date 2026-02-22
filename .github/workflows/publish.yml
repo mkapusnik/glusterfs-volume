@@ -27,7 +27,7 @@ jobs:
             TAG=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g')
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "plugin=ghcr.io/${REPO}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "plugin=${REPO}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build plugin
         run: make build plugin="${{ steps.meta.outputs.plugin }}"
@@ -36,4 +36,4 @@ jobs:
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push plugin to GHCR
-        run: make push plugin="${{ steps.meta.outputs.plugin }}"
+        run: make push registry="ghcr.io/" plugin="${{ steps.meta.outputs.plugin }}"
