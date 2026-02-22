@@ -5,7 +5,7 @@ Docker volume plugin that provisions Docker volumes of a GlusterFS volume. The p
 
 ## Instalation
     
-    docker plugin install --alias gfs ghcr.io/mkapusnik/glusterfs-volume
+    docker plugin install --grant-all-permissions --alias gfs ghcr.io/mkapusnik/glusterfs-volume
 
 ## Usage
 
